@@ -203,10 +203,10 @@ class SaverMixin():
         
         if save_format == 'gif':
             imgs = [cv2.cvtColor(i, cv2.COLOR_BGR2RGB) for i in imgs]
-            imageio.mimsave(self.get_save_path(filename), imgs, fps=fps, palettesize=256)
+            imageio.mimsave(self.get_save_path(filename), imgs, palettesize=256)#, fps=fps)
         elif save_format == 'mp4':
             imgs = [cv2.cvtColor(i, cv2.COLOR_BGR2RGB) for i in imgs]
-            imageio.mimsave(self.get_save_path(filename), imgs, fps=fps)
+            imageio.mimsave(self.get_save_path(filename), imgs)#, fps=fps)
     
     def save_mesh(self, filename, v_pos, t_pos_idx, v_tex=None, t_tex_idx=None, v_rgb=None, ortho_scale=1):
         v_pos, t_pos_idx = self.convert_data(v_pos), self.convert_data(t_pos_idx)

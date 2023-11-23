@@ -1,3 +1,11 @@
+'''
+To execute:
+python launch.py \
+    --config configs/neuralangelo-ortho-wmask.yaml \
+    --gpu 0 \
+    --train dataset.root_dir=../outputs/cropsize-192-cfg3.0 dataset.scene=owl
+'''
+
 import sys
 import argparse
 import os
@@ -5,8 +13,17 @@ import time
 import logging
 from datetime import datetime
 
+import datasets
+import systems
+import pytorch_lightning as pl
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
+from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
+from utils.callbacks import CodeSnapshotCallback, ConfigSnapshotCallback, CustomProgressBar
+from utils.misc import load_config    
 
-def main():
+
+def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True, help='path to config file')
     parser.add_argument('--gpu', default='0', help='GPU(s) to be used')
@@ -27,22 +44,16 @@ def main():
     parser.add_argument('--exp_dir', default='./exp')
     parser.add_argument('--runs_dir', default='./runs')
     parser.add_argument('--verbose', action='store_true', help='if true, set logging level to DEBUG')
+    return parser
 
-    args, extras = parser.parse_known_args()
+
+def main():
+    args, extras = get_parser().parse_known_args()
 
     # set CUDA_VISIBLE_DEVICES then import pytorch-lightning
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     n_gpus = len(args.gpu.split(','))
-
-    import datasets
-    import systems
-    import pytorch_lightning as pl
-    from pytorch_lightning import Trainer
-    from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
-    from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
-    from utils.callbacks import CodeSnapshotCallback, ConfigSnapshotCallback, CustomProgressBar
-    from utils.misc import load_config    
 
     # parse YAML config to OmegaConf
     config = load_config(args.config, cli_args=extras)

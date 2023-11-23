@@ -29,7 +29,9 @@ from diffusers.schedulers import KarrasDiffusionSchedulers
 from diffusers.utils import deprecate, logging, randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
-from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
+from diffusers.pipelines.stable_diffusion.safety_checker import (
+    StableDiffusionSafetyChecker,
+)
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -76,8 +78,8 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         safety_checker: StableDiffusionSafetyChecker,
         feature_extractor: CLIPImageProcessor,
         requires_safety_checker: bool = True,
-        camera_embedding_type: str = 'e_de_da_sincos',
-        num_views: int = 4
+        camera_embedding_type: str = "e_de_da_sincos",
+        num_views: int = 4,
     ):
         super().__init__()
 
@@ -97,10 +99,16 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
                 " checker. If you do not want to use the safety checker, you can pass `'safety_checker=None'` instead."
             )
 
-        is_unet_version_less_0_9_0 = hasattr(unet.config, "_diffusers_version") and version.parse(
+        is_unet_version_less_0_9_0 = hasattr(
+            unet.config, "_diffusers_version"
+        ) and version.parse(
             version.parse(unet.config._diffusers_version).base_version
-        ) < version.parse("0.9.0.dev0")
-        is_unet_sample_size_less_64 = hasattr(unet.config, "sample_size") and unet.config.sample_size < 64
+        ) < version.parse(
+            "0.9.0.dev0"
+        )
+        is_unet_sample_size_less_64 = (
+            hasattr(unet.config, "sample_size") and unet.config.sample_size < 64
+        )
         if is_unet_version_less_0_9_0 and is_unet_sample_size_less_64:
             deprecation_message = (
                 "The configuration file of the unet has set the default `sample_size` to smaller than"
@@ -113,7 +121,9 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
                 " checkpoint from the Hugging Face Hub, it would be very nice if you could open a Pull request for"
                 " the `unet/config.json` file"
             )
-            deprecate("sample_size<64", "1.0.0", deprecation_message, standard_warn=False)
+            deprecate(
+                "sample_size<64", "1.0.0", deprecation_message, standard_warn=False
+            )
             new_config = dict(unet.config)
             new_config["sample_size"] = 64
             unet._internal_dict = FrozenDict(new_config)
@@ -133,10 +143,14 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         self.camera_embedding_type: str = camera_embedding_type
         self.num_views: int = num_views
 
-    def _encode_image(self, image_pil, device, num_images_per_prompt, do_classifier_free_guidance):
+    def _encode_image(
+        self, image_pil, device, num_images_per_prompt, do_classifier_free_guidance
+    ):
         dtype = next(self.image_encoder.parameters()).dtype
 
-        image_pt = self.feature_extractor(images=image_pil, return_tensors="pt").pixel_values
+        image_pt = self.feature_extractor(
+            images=image_pil, return_tensors="pt"
+        ).pixel_values
         image_pt = image_pt.to(device=device, dtype=dtype)
         image_embeddings = self.image_encoder(image_pt).image_embeds
         image_embeddings = image_embeddings.unsqueeze(1)
@@ -154,12 +168,17 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             # Here we concatenate the unconditional and text embeddings into a single batch
             # to avoid doing two forward passes
             image_embeddings = torch.cat([negative_prompt_embeds, image_embeddings])
-        
-        image_pt = torch.stack([TF.to_tensor(img) for img in image_pil], dim=0).to(device)
+
+        image_pt = torch.stack([TF.to_tensor(img) for img in image_pil], dim=0).to(
+            device
+        )
         image_pt = image_pt * 2.0 - 1.0
-        image_latents = self.vae.encode(image_pt).latent_dist.mode() * self.vae.config.scaling_factor
+        image_latents = (
+            self.vae.encode(image_pt.half()).latent_dist.mode()
+            * self.vae.config.scaling_factor
+        )
         # Note: repeat differently from official pipelines
-        # B1B2B3B4 -> B1B2B3B4B1B2B3B4        
+        # B1B2B3B4 -> B1B2B3B4B1B2B3B4
         image_latents = image_latents.repeat(num_images_per_prompt, 1, 1, 1)
 
         if do_classifier_free_guidance:
@@ -173,10 +192,14 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             has_nsfw_concept = None
         else:
             if torch.is_tensor(image):
-                feature_extractor_input = self.image_processor.postprocess(image, output_type="pil")
+                feature_extractor_input = self.image_processor.postprocess(
+                    image, output_type="pil"
+                )
             else:
                 feature_extractor_input = self.image_processor.numpy_to_pil(image)
-            safety_checker_input = self.feature_extractor(feature_extractor_input, return_tensors="pt").to(device)
+            safety_checker_input = self.feature_extractor(
+                feature_extractor_input, return_tensors="pt"
+            ).to(device)
             image, has_nsfw_concept = self.safety_checker(
                 images=image, clip_input=safety_checker_input.pixel_values.to(dtype)
             )
@@ -203,13 +226,17 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         # eta corresponds to η in DDIM paper: https://arxiv.org/abs/2010.02502
         # and should be between [0, 1]
 
-        accepts_eta = "eta" in set(inspect.signature(self.scheduler.step).parameters.keys())
+        accepts_eta = "eta" in set(
+            inspect.signature(self.scheduler.step).parameters.keys()
+        )
         extra_step_kwargs = {}
         if accepts_eta:
             extra_step_kwargs["eta"] = eta
 
         # check if the scheduler accepts generator
-        accepts_generator = "generator" in set(inspect.signature(self.scheduler.step).parameters.keys())
+        accepts_generator = "generator" in set(
+            inspect.signature(self.scheduler.step).parameters.keys()
+        )
         if accepts_generator:
             extra_step_kwargs["generator"] = generator
         return extra_step_kwargs
@@ -226,10 +253,13 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             )
 
         if height % 8 != 0 or width % 8 != 0:
-            raise ValueError(f"`height` and `width` have to be divisible by 8 but are {height} and {width}.")
+            raise ValueError(
+                f"`height` and `width` have to be divisible by 8 but are {height} and {width}."
+            )
 
         if (callback_steps is None) or (
-            callback_steps is not None and (not isinstance(callback_steps, int) or callback_steps <= 0)
+            callback_steps is not None
+            and (not isinstance(callback_steps, int) or callback_steps <= 0)
         ):
             raise ValueError(
                 f"`callback_steps` has to be a positive integer but is {callback_steps} of type"
@@ -237,8 +267,23 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             )
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents
-    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
-        shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
+    def prepare_latents(
+        self,
+        batch_size,
+        num_channels_latents,
+        height,
+        width,
+        dtype,
+        device,
+        generator,
+        latents=None,
+    ):
+        shape = (
+            batch_size,
+            num_channels_latents,
+            height // self.vae_scale_factor,
+            width // self.vae_scale_factor,
+        )
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
@@ -246,7 +291,9 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             )
 
         if latents is None:
-            latents = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
+            latents = randn_tensor(
+                shape, generator=generator, device=device, dtype=dtype
+            )
         else:
             latents = latents.to(device)
 
@@ -254,32 +301,38 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         latents = latents * self.scheduler.init_noise_sigma
         return latents
 
-    def prepare_camera_embedding(self, camera_embedding: Union[float, torch.Tensor], do_classifier_free_guidance, num_images_per_prompt=1):
+    def prepare_camera_embedding(
+        self,
+        camera_embedding: Union[float, torch.Tensor],
+        do_classifier_free_guidance,
+        num_images_per_prompt=1,
+    ):
         # (B, 3)
-        camera_embedding = camera_embedding.to(dtype=self.unet.dtype, device=self.unet.device)
+        camera_embedding = camera_embedding.to(
+            dtype=self.unet.dtype, device=self.unet.device
+        )
 
-        if self.camera_embedding_type == 'e_de_da_sincos':
+        if self.camera_embedding_type == "e_de_da_sincos":
             # (B, 6)
-            camera_embedding = torch.cat([
-                torch.sin(camera_embedding),
-                torch.cos(camera_embedding)
-            ], dim=-1)
-            assert self.unet.config.class_embed_type == 'projection'
-            assert self.unet.config.projection_class_embeddings_input_dim == 6 or self.unet.config.projection_class_embeddings_input_dim == 10
+            camera_embedding = torch.cat(
+                [torch.sin(camera_embedding), torch.cos(camera_embedding)], dim=-1
+            )
+            assert self.unet.config.class_embed_type == "projection"
+            assert (
+                self.unet.config.projection_class_embeddings_input_dim == 6
+                or self.unet.config.projection_class_embeddings_input_dim == 10
+            )
         else:
             raise NotImplementedError
-        
+
         # Note: repeat differently from official pipelines
-        # B1B2B3B4 -> B1B2B3B4B1B2B3B4        
-        camera_embedding = camera_embedding.repeat(num_images_per_prompt, 1)     
+        # B1B2B3B4 -> B1B2B3B4B1B2B3B4
+        camera_embedding = camera_embedding.repeat(num_images_per_prompt, 1)
 
         if do_classifier_free_guidance:
-            camera_embedding = torch.cat([
-                camera_embedding,
-                camera_embedding
-            ], dim=0)
-        
-        return camera_embedding    
+            camera_embedding = torch.cat([camera_embedding, camera_embedding], dim=0)
+
+        return camera_embedding
 
     @torch.no_grad()
     def __call__(
@@ -287,7 +340,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         image: Union[List[PIL.Image.Image], torch.FloatTensor],
         # elevation_cond: torch.FloatTensor,
         # elevation: torch.FloatTensor,
-        # azimuth: torch.FloatTensor, 
+        # azimuth: torch.FloatTensor,
         camera_embedding: torch.FloatTensor,
         height: Optional[int] = None,
         width: Optional[int] = None,
@@ -380,7 +433,6 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(image, height, width, callback_steps)
 
-
         # 2. Define call parameters
         if isinstance(image, list):
             batch_size = len(image)
@@ -398,20 +450,30 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             image_pil = image
         elif isinstance(image, torch.Tensor):
             image_pil = [TF.to_pil_image(image[i]) for i in range(image.shape[0])]
-        image_embeddings, image_latents = self._encode_image(image_pil, device, num_images_per_prompt, do_classifier_free_guidance)
+        image_embeddings, image_latents = self._encode_image(
+            image_pil, device, num_images_per_prompt, do_classifier_free_guidance
+        )
 
         if normal_cond is not None:
             if isinstance(normal_cond, list):
                 normal_cond_pil = normal_cond
             elif isinstance(normal_cond, torch.Tensor):
-                normal_cond_pil = [TF.to_pil_image(normal_cond[i]) for i in range(normal_cond.shape[0])]
-            _, image_latents = self._encode_image(normal_cond_pil, device, num_images_per_prompt, do_classifier_free_guidance)
+                normal_cond_pil = [
+                    TF.to_pil_image(normal_cond[i]) for i in range(normal_cond.shape[0])
+                ]
+            _, image_latents = self._encode_image(
+                normal_cond_pil,
+                device,
+                num_images_per_prompt,
+                do_classifier_free_guidance,
+            )
 
-
-        # assert len(elevation_cond) == batch_size and len(elevation) == batch_size and len(azimuth) == batch_size
-        # camera_embeddings = self.prepare_camera_condition(elevation_cond, elevation, azimuth, do_classifier_free_guidance=do_classifier_free_guidance, num_images_per_prompt=num_images_per_prompt)
         assert len(camera_embedding) == batch_size
-        camera_embeddings = self.prepare_camera_embedding(camera_embedding, do_classifier_free_guidance=do_classifier_free_guidance, num_images_per_prompt=num_images_per_prompt)
+        camera_embeddings = self.prepare_camera_embedding(
+            camera_embedding,
+            do_classifier_free_guidance=do_classifier_free_guidance,
+            num_images_per_prompt=num_images_per_prompt,
+        )
 
         # 4. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -429,7 +491,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             generator,
             latents,
         )
-        
+
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
@@ -438,35 +500,54 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
-                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                latent_model_input = torch.cat([
-                    latent_model_input, image_latents
-                ], dim=1)
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                latent_model_input = (
+                    torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                )
+                latent_model_input = torch.cat(
+                    [latent_model_input, image_latents], dim=1
+                )
+                latent_model_input = self.scheduler.scale_model_input(
+                    latent_model_input, t
+                )
 
                 # predict the noise residual
-                noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=image_embeddings, class_labels=camera_embeddings).sample
+                noise_pred = self.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=image_embeddings,
+                    class_labels=camera_embeddings,
+                ).sample
 
                 # perform guidance
                 if do_classifier_free_guidance:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                    noise_pred = noise_pred_uncond + guidance_scale * (
+                        noise_pred_text - noise_pred_uncond
+                    )
 
                 # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
+                latents = self.scheduler.step(
+                    noise_pred, t, latents, **extra_step_kwargs
+                ).prev_sample
 
                 # call the callback, if provided
-                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                if i == len(timesteps) - 1 or (
+                    (i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0
+                ):
                     progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
                         callback(i, t, latents)
 
-        if not output_type == "latent":
+        if output_type != "latent":
             if num_channels_latents == 8:
                 latents = torch.cat([latents[:, :4], latents[:, 4:]], dim=0)
 
-            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
-            image, has_nsfw_concept = self.run_safety_checker(image, device, image_embeddings.dtype)
+            image = self.vae.decode(
+                latents / self.vae.config.scaling_factor, return_dict=False
+            )[0]
+            image, has_nsfw_concept = self.run_safety_checker(
+                image, device, image_embeddings.dtype
+            )
         else:
             image = latents
             has_nsfw_concept = None
@@ -476,10 +557,13 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         else:
             do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept]
 
-        image = self.image_processor.postprocess(image, output_type=output_type, do_denormalize=do_denormalize)
+        image = self.image_processor.postprocess(
+            image, output_type=output_type, do_denormalize=do_denormalize
+        )
 
         if not return_dict:
             return (image, has_nsfw_concept)
 
-        return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
-    
+        return StableDiffusionPipelineOutput(
+            images=image, nsfw_content_detected=has_nsfw_concept
+        )
