@@ -187,3 +187,7 @@ render_results
 experiments/*
 ckpts/*
 neus/*
+sam_pt/
+instant-nsr-pl/exp/
+example_images/
+.ckpts/
